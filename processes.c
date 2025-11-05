@@ -23,4 +23,25 @@
 
 int main() {
    setvbuf(stdout, NULL, _IONBF, 0); // Disable buffering for stdout
+
+   pid_t pid = fork(); // Create a new process
+   if (pid<0){
+        perror("Fork failed");
+        exit(EXIT_FAILURE);
+     }
+     else if (pid==0){
+        // Child process
+        printf("Child Process: PID = %d, Parent PID = %d\n", getpid(), getppid());
+        char *args[] = {"/bin/ls", "-l", NULL}; // Arguments for exec
+        execv(args[0], args); // Replace child process with 'ls -l'
+        // If execv returns, it means it failed
+        perror("execv failed");
+        exit(EXIT_FAILURE);
+     }
+     else {
+        // Parent process
+        printf("Parent Process: PID = %d, Child PID = %d\n", getpid(), pid);
+        wait(NULL); // Wait for child process to finish
+        printf("Child process completed.\n");
+   }
 }
