@@ -21,27 +21,45 @@
 #include <unistd.h>
 #include <sys/types.h>
 
-int main() {
-   setvbuf(stdout, NULL, _IONBF, 0); // Disable buffering for stdout
+int main()
+{
+    setvbuf(stdout, NULL, _IONBF, 0); // Disable buffering for stdout
 
-   pid_t pid = fork(); // Create a new process
-   if (pid<0){
+    unsigned long int counter = 0;
+    pid_t pid = fork();
+
+    if (pid < 0)
+    {
         perror("Fork failed");
         exit(EXIT_FAILURE);
-     }
-     else if (pid==0){
-        // Child process
-        printf("Child Process: PID = %d, Parent PID = %d\n", getpid(), getppid());
-        char *args[] = {"/bin/ls", "-l", NULL}; // Arguments for exec
-        execv(args[0], args); // Replace child process with 'ls -l'
-        // If execv returns, it means it failed
-        perror("execv failed");
-        exit(EXIT_FAILURE);
-     }
-     else {
-        // Parent process
-        printf("Parent Process: PID = %d, Child PID = %d\n", getpid(), pid);
-        wait(NULL); // Wait for child process to finish
-        printf("Child process completed.\n");
-   }
+    }
+    if (pid == 0)
+    {
+        // ----- Process 2 (child) -----
+        printf("[Process 2] PID=%d (parent=%d) starting...\n", getpid(), getppid());
+        while (1)
+        {
+            counter++;
+            // Print occasionally to avoid spamming the terminal
+            if (counter % 1000000ULL == 0ULL)
+            {
+                printf("[Process 2] PID=%d counter=%llu\n", getpid(), counter);
+                usleep(200000); // 200 ms delay
+            }
+        }
+    }
+    else
+    {
+        // ----- Process 1 (parent) -----
+        printf("[Process 1] PID=%d (child=%d) starting...\n", getpid(), pid);
+        while (1)
+        {
+            counter++;
+            if (counter % 1000000ULL == 0ULL)
+            {
+                printf("[Process 1] PID=%d counter=%llu\n", getpid(), counter);
+                usleep(300000); // 300 ms delay
+            }
+        }
+    }
 }
