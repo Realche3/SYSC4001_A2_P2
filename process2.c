@@ -7,65 +7,100 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <sys/sem.h>
 #include <errno.h>
 
-#define SHM_KEY 0x12345  // Must match process1.c
+#define SHM_KEY  0x12345
+#define SEM_KEY  0x23456
 
 typedef struct {
-    int multiple;      // e.g., 3
-    long counter;      // owned by Process 1; read-only here
+    int  multiple;
+    long counter;
 } shmdata_t;
 
+union semun {
+    int              val;
+    struct semid_ds *buf;
+    unsigned short  *array;
+    struct seminfo  *__buf;
+};
+
+static void sem_lock(int semid) {
+    struct sembuf op = { .sem_num = 0, .sem_op = -1, .sem_flg = 0 }; // P()
+    if (semop(semid, &op, 1) == -1) {
+        perror("[Process 2] semop - lock");
+        exit(EXIT_FAILURE);
+    }
+}
+static void sem_unlock(int semid) {
+    struct sembuf op = { .sem_num = 0, .sem_op = +1, .sem_flg = 0 }; // V()
+    if (semop(semid, &op, 1) == -1) {
+        perror("[Process 2] semop - unlock");
+        exit(EXIT_FAILURE);
+    }
+}
+
 int main(void) {
-    setvbuf(stdout, NULL, _IONBF, 0); // unbuffered stdout
+    setvbuf(stdout, NULL, _IONBF, 0);
 
-    // Find the shared segment created by Process 1
+    /* 1) Attach shared memory and semaphore (created by process1) */
     int shmid = shmget(SHM_KEY, sizeof(shmdata_t), 0666);
-    if (shmid < 0) {
-        perror("[Process 2] shmget");
-        exit(EXIT_FAILURE);
-    }
+    if (shmid < 0) { perror("[Process 2] shmget"); exit(EXIT_FAILURE); }
 
-    // Attach it
     shmdata_t *shmp = (shmdata_t *)shmat(shmid, NULL, 0);
-    if (shmp == (void *)-1) {
-        perror("[Process 2] shmat");
-        exit(EXIT_FAILURE);
-    }
+    if (shmp == (void *)-1) { perror("[Process 2] shmat"); exit(EXIT_FAILURE); }
 
-    printf("[Process 2] PID=%d (parent=%d). Attached to shared memory. multiple=%d\n",
-           getpid(), getppid(), shmp->multiple);
+    int semid = semget(SEM_KEY, 1, 0666);
+    if (semid < 0) { perror("[Process 2] semget"); exit(EXIT_FAILURE); }
 
-    // Wait until counter > 100 before starting
-    while (shmp->counter <= 100) {
-        printf("[Process 2] waiting... counter=%ld (start when >100)\n", shmp->counter);
-        usleep(200000); // 200 ms
-    }
+    int multiple;
+    long snapshot;
 
-    // Now react to the shared counter and multiple; stop when counter > 500
+    /* Read initial multiple under lock (not strictly necessary every time) */
+    sem_lock(semid);
+    multiple = shmp->multiple;
+    snapshot = shmp->counter;
+    sem_unlock(semid);
+
+    printf("[Process 2] PID=%d (parent=%d). multiple=%d. Waiting for counter > 100...\n",
+           getpid(), getppid(), multiple);
+
+    /* 2) Wait until counter > 100 */
     while (1) {
-        long c = shmp->counter;  // read a snapshot (no locking needed for this demo)
+        sem_lock(semid);
+        snapshot = shmp->counter;
+        multiple = shmp->multiple; // multiple could change; adapt if needed
+        sem_unlock(semid);
 
-        if (c > 500) {
-            printf("[Process 2] counter=%ld (>500). Finishing.\n", c);
+        if (snapshot > 100) break;
+
+        printf("[Process 2] waiting... counter=%ld\n", snapshot);
+        usleep(200000);
+    }
+
+    /* 3) Main loop: read/print until counter > 500 */
+    while (1) {
+        sem_lock(semid);
+        snapshot = shmp->counter;
+        multiple  = shmp->multiple;
+
+        if (snapshot > 500) {
+            printf("[Process 2] counter=%ld (>500). Finishing.\n", snapshot);
+            sem_unlock(semid);
             break;
         }
 
-        // Identify ourselves and what we see
-        if (c % shmp->multiple == 0) {
+        if (snapshot % multiple == 0) {
             printf("[Process 2] sees counter=%ld  -> %ld is a multiple of %d\n",
-                   c, c, shmp->multiple);
+                   snapshot, snapshot, multiple);
         } else {
-            printf("[Process 2] sees counter=%ld\n", c);
+            printf("[Process 2] sees counter=%ld\n", snapshot);
         }
+        sem_unlock(semid);
 
-        usleep(220000); // a different delay so outputs interleave nicely
+        usleep(220000);
     }
 
-    // Detach (segment will be removed by Process 1 after both detach)
-    if (shmdt(shmp) == -1) {
-        perror("[Process 2] shmdt");
-    }
-
+    if (shmdt(shmp) == -1) perror("[Process 2] shmdt");
     return 0;
 }
