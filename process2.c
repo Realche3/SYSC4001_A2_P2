@@ -5,38 +5,67 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <errno.h>
+
+#define SHM_KEY 0x12345  // Must match process1.c
+
+typedef struct {
+    int multiple;      // e.g., 3
+    long counter;      // owned by Process 1; read-only here
+} shmdata_t;
 
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0); // unbuffered stdout
 
-    printf("[Process 2] PID=%d (parent=%d). Starting decrement loop...\n", getpid(), getppid());
+    // Find the shared segment created by Process 1
+    int shmid = shmget(SHM_KEY, sizeof(shmdata_t), 0666);
+    if (shmid < 0) {
+        perror("[Process 2] shmget");
+        exit(EXIT_FAILURE);
+    }
 
-    unsigned long long cycle = 0; // iteration number (display every loop)
-    long long value = 0;          // start at 0 and go negative
+    // Attach it
+    shmdata_t *shmp = (shmdata_t *)shmat(shmid, NULL, 0);
+    if (shmp == (void *)-1) {
+        perror("[Process 2] shmat");
+        exit(EXIT_FAILURE);
+    }
 
+    printf("[Process 2] PID=%d (parent=%d). Attached to shared memory. multiple=%d\n",
+           getpid(), getppid(), shmp->multiple);
+
+    // Wait until counter > 100 before starting
+    while (shmp->counter <= 100) {
+        printf("[Process 2] waiting... counter=%ld (start when >100)\n", shmp->counter);
+        usleep(200000); // 200 ms
+    }
+
+    // Now react to the shared counter and multiple; stop when counter > 500
     while (1) {
-        // always show cycle number
-        printf("Cycle number: %llu", cycle);
+        long c = shmp->counter;  // read a snapshot (no locking needed for this demo)
 
-        // multiples of 3 check (works for negatives in C: -3 % 3 == 0)
-        if (value % 3 == 0) {
-            printf(" – %lld is a multiple of 3\n", value);
-        } else {
-            printf("\n");
-        }
-
-        // stop condition
-        if (value < -500) {
-            printf("[Process 2] Reached value %lld (< -500). Exiting.\n", value);
+        if (c > 500) {
+            printf("[Process 2] counter=%ld (>500). Finishing.\n", c);
             break;
         }
 
-        // prepare next iteration
-        value--;   // decrementing
-        cycle++;
+        // Identify ourselves and what we see
+        if (c % shmp->multiple == 0) {
+            printf("[Process 2] sees counter=%ld  -> %ld is a multiple of %d\n",
+                   c, c, shmp->multiple);
+        } else {
+            printf("[Process 2] sees counter=%ld\n", c);
+        }
 
-        usleep(200000); // 200 ms delay to slow display
+        usleep(220000); // a different delay so outputs interleave nicely
     }
 
-    return 0; // exit status 0; parent will see this in waitpid
+    // Detach (segment will be removed by Process 1 after both detach)
+    if (shmdt(shmp) == -1) {
+        perror("[Process 2] shmdt");
+    }
+
+    return 0;
 }
