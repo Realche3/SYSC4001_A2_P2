@@ -1,5 +1,8 @@
-// process2.c
-// Mohamed Cherif Bah
+/*
+Extend the processes above once more. They should now protect concurrent access to the shared
+memory positions. On top of the shm instructions, you should protect the shared memory access using
+semaphores. Use semget, semop, semctl to protect the shared memory section
+*/
 
 #include <stdio.h>
 #include <stdlib.h>
