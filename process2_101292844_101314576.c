@@ -1,3 +1,4 @@
+//Part 5 process2.c
 /*
 Extend the processes above once more. They should now protect concurrent access to the shared
 memory positions. On top of the shm instructions, you should protect the shared memory access using
