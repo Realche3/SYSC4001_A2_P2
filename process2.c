@@ -1,6 +1,5 @@
 // process2.c
-// Mohamed Cherif Bah 101292844
-//
+// Mohamed Cherif Bah
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,24 +11,32 @@ int main(void) {
 
     printf("[Process 2] PID=%d (parent=%d). Starting decrement loop...\n", getpid(), getppid());
 
-    unsigned long long cycle = 0; // iteration count (display every loop)
-    long long value = 0;          // start at 0, then go -1, -2, ...
+    unsigned long long cycle = 0; // iteration number (display every loop)
+    long long value = 0;          // start at 0 and go negative
 
     while (1) {
-        // Show the cycle number every time
+        // always show cycle number
         printf("Cycle number: %llu", cycle);
 
-        // multiples of 3 work for negatives too (-3 % 3 == 0 in C)
+        // multiples of 3 check (works for negatives in C: -3 % 3 == 0)
         if (value % 3 == 0) {
             printf(" – %lld is a multiple of 3\n", value);
         } else {
             printf("\n");
         }
 
-        // next iteration: decrement value, cycle++
-        value--;
+        // stop condition
+        if (value < -500) {
+            printf("[Process 2] Reached value %lld (< -500). Exiting.\n", value);
+            break;
+        }
+
+        // prepare next iteration
+        value--;   // decrementing
         cycle++;
 
-        usleep(250000); // 250 ms to slow display (different from Process 1 so you can tell)
+        usleep(200000); // 200 ms delay to slow display
     }
+
+    return 0; // exit status 0; parent will see this in waitpid
 }
